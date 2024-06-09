@@ -14,6 +14,7 @@ export default function RedirectPage() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [processMessage, setProcessMessage] = useState("");
 
   const updateData = useRef(false);
 
@@ -25,13 +26,13 @@ export default function RedirectPage() {
     if (!code && !localAuthToken) {
       router.replace('/');
       return;
-    } else if (code) {
-      localStorage.removeItem("authToken");
-      setLocalAuthToken(null);
+    } else if (!code && localAuthToken) {
+      setAuthToken(localAuthToken)
     }
 
     async function fetchData() {
       try {
+        setProcessMessage("Fetching user data...");
         const res = await fetch('/api/get-token', {
           method: 'POST',
           headers: {
@@ -42,9 +43,12 @@ export default function RedirectPage() {
 
         const result = await res.json();
         if (res.ok) {
+          localStorage.removeItem("authToken");
+          setLocalAuthToken(null);
           setData(result);
         } else {
-          // router.replace('/');
+          if (localAuthToken) setAuthToken(localAuthToken);
+          else router.replace('/');
         }
       } catch (err) {
         setError(err.message);
@@ -52,7 +56,7 @@ export default function RedirectPage() {
     }
 
     if (code) fetchData();
-  }, [searchParams]);
+  }, []);
 
   async function fetchUserData(auth_token) {
     try {
@@ -87,7 +91,6 @@ export default function RedirectPage() {
 
       const result = await res.json();
       if (res.ok) {
-        // setTeams(result?.teams);
         return result;
       } else {
         throw new Error(result.error);
@@ -184,6 +187,8 @@ export default function RedirectPage() {
   async function fetchAllData(auth_token) {
     let lists = [];
     let tasks = [];
+
+    setProcessMessage("Fetching teams data...");
     // Get Teams    
     const teamsRes = await fetchTeamsData(auth_token);
     const foundTeams = get(teamsRes, "teams", []);
@@ -193,6 +198,7 @@ export default function RedirectPage() {
       const teamID = teamObj.id;
       const teamName = teamObj.name;
 
+      setProcessMessage("Fetching spaces data...");
       // Get Spaces
       const spacesRes = await fetchSpacesData(auth_token, teamID);
       const foundSpaces = get(spacesRes, "spaces", []);
@@ -202,6 +208,7 @@ export default function RedirectPage() {
         const spaceID = spaceObj.id;
         const spaceName = spaceObj.name;
 
+        setProcessMessage("Fetching folders data...");
         // Get Folders
         const foldersRes = await fetchFoldersData(auth_token, spaceID);
         const foundFolders = get(foldersRes, "folders", []);
@@ -211,6 +218,7 @@ export default function RedirectPage() {
           const folderID = folderObj.id;
           const folderName = folderObj.name;
           const folderLists = get(folderObj, "lists", []);
+          setProcessMessage("Fetching folder lists data...");
           for (const listObj of folderLists) {
             const listID = listObj.id;
             const listName = listObj.name;
@@ -230,6 +238,7 @@ export default function RedirectPage() {
         // Get folderless lists
         const folderlessListRes = await fetchFolderlessListData(auth_token, spaceID);
         const foundFolderlessLists = get(folderlessListRes, "lists", []);
+        setProcessMessage("Fetching folderless lists data...");
         for (const listObj of foundFolderlessLists) {
           const listID = listObj.id;
           const listName = listObj.name;
@@ -252,6 +261,7 @@ export default function RedirectPage() {
 
     localStorage.setItem("lists", JSON.stringify(lists));
 
+    setProcessMessage("Fetching tasks data. This may take a while...");
     // Fetch all tasks
     for (const listObj of lists) {
       const listID = listObj.listID;
@@ -274,6 +284,7 @@ export default function RedirectPage() {
     }
 
     if (tasks.length > 0) {
+      setProcessMessage("Saving tasks data...");
       localStorage.setItem("tasks", JSON.stringify(tasks));
       setLoading(false);
       router.replace("/home");
@@ -282,33 +293,34 @@ export default function RedirectPage() {
 
   useEffect(() => {
     async function process() {
-      if (authToken || localAuthToken) {
-        if (authToken) {
-          localStorage.setItem("authToken", authToken);
-          localStorage.setItem("timestamp", new Date().toISOString()); 
-        } else {
-          setAuthToken(localAuthToken);
-        }
+      if (authToken) {
+        console.log("auth token", authToken)
+        localStorage.setItem("authToken", String(authToken));
+        localStorage.setItem("timestamp", new Date().toISOString()); 
         updateData.current = true;
-        await fetchUserData(authToken || localAuthToken);
-        await fetchAllData(authToken || localAuthToken);
+        await fetchUserData(authToken);
+        await fetchAllData(authToken);
       }
     }
     if (updateData.current == false) {
       process();
     }
-  }, [authToken, localAuthToken]);
+  }, [authToken]);
 
   useEffect(() => {
     if (data && authToken !== data.access_token) {
+      setProcessMessage("Setting Auth Token...");
       setAuthToken(data.access_token);
     }
   }, [data]);
 
   if (loading) {
     return (
-      <div className='mt-36'>
-        <Loader type="spinner-circle" bgColor={"orange"} size={250} />
+      <div>
+        <div className='mt-36'>
+          <Loader type="spinner-circle" bgColor={"orange"} size={250} />
+        </div>
+        <div className='text-center mt-16'>{processMessage}</div>
       </div>
     );
   }

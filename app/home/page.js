@@ -1,53 +1,125 @@
-'use client';
+"use client"
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import useStore from "../store";
-import Loader from "react-js-loader";
-import { isEmpty } from 'lodash';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
-import { PrimeIcons } from 'primereact/api';
+import { Button } from 'primereact/button';
+import { InputText } from 'primereact/inputtext';
+import { MultiSelect } from 'primereact/multiselect';
+import { FilterService, FilterMatchMode } from 'primereact/api';
+
+// Register the custom filter service
+const assigneeRowFilterFunction = (assignees, filterValue) => {
+  if (!filterValue || !assignees) return true;
+  if (filterValue.length === 0) return true;
+  else if (filterValue.length !== 0 && assignees.length === 0) return false;
+  return filterValue.every((filterAssignee) => assignees.some(assignee => assignee.username === filterAssignee));
+};
+FilterService.register('customAssigneeFilter', assigneeRowFilterFunction);
+
+const baseFilters = {
+  global: { value: null, matchMode: FilterMatchMode.CONTAINS },
+  "status.status": { value: null, matchMode: FilterMatchMode.IN },
+  "assignees.username": { value: null, matchMode: 'customAssigneeFilter' },
+  "watchers.username": { value: null, matchMode: FilterMatchMode.IN },
+};
 
 export default function Page() {
   const router = useRouter();
-  const { authToken } = useStore();
   const [user, setUser] = useState();
   const user_ls = JSON.parse(localStorage.getItem('user'));
   const tasks = JSON.parse(localStorage.getItem('tasks'));
+  const [filteredTasks, setFilteredTasks] = useState(tasks);
+  const [filters, setFilters] = useState(baseFilters);
+  const [globalFilterValue, setGlobalFilterValue] = useState('');
 
-  useEffect(() => {    
+  useEffect(() => {
     if (!user_ls || !tasks || tasks.length === 0) {
       router.replace("/");
     } else {
-      setUser(user_ls)
+      setUser(user_ls);
+    }
+  }, []);
+
+  useEffect(() => {
+    applyFilters();
+  }, [filters, globalFilterValue]);
+
+  const applyFilters = () => {
+    let filtered = tasks;
+
+    // Global filter
+    if (globalFilterValue) {
+      filtered = filtered.filter(task =>
+        task.name.toLowerCase().includes(globalFilterValue.toLowerCase()) ||
+        task.status.status.toLowerCase().includes(globalFilterValue.toLowerCase()) ||
+        task.assignees.some(assignee => assignee.username.toLowerCase().includes(globalFilterValue.toLowerCase())) ||
+        task.watchers.some(watcher => watcher.username.toLowerCase().includes(globalFilterValue.toLowerCase())) ||
+        task.creator.username.toLowerCase().includes(globalFilterValue.toLowerCase()) ||
+        (task.priority && task.priority.priority.toLowerCase().includes(globalFilterValue.toLowerCase()))
+      );
     }
 
-  }, [])
+    // Status filter
+    if (filters['status.status'].value && filters['status.status'].value.length > 0) {
+      filtered = filtered.filter(task => filters['status.status'].value.includes(task.status.status));
+    }
+
+    // Assignees filter
+    if (filters['assignees.username'].value && filters['assignees.username'].value.length > 0) {
+      filtered = filtered.filter(task =>
+        task.assignees.some(assignee => filters['assignees.username'].value.includes(assignee.username))
+      );
+    }
+
+    setFilteredTasks(filtered);
+  };
+
+  const onGlobalFilterChange = (e) => {
+    setGlobalFilterValue(e.target.value);
+  };
+
+  const onStatusFilterChange = (e) => {
+    const value = e.value;
+    setFilters(prevFilters => ({
+      ...prevFilters,
+      "status.status": { ...prevFilters['status.status'], value }
+    }));
+  };
+
+  const onAssigneeFilterChange = (e) => {
+    const value = e.value;
+    setFilters(prevFilters => ({
+      ...prevFilters,
+      "assignees.username": { ...prevFilters['assignees.username'], value }
+    }));
+  };
+
+  const assigneeOptions = Array.from(new Set(tasks.flatMap(task => task.assignees?.map(assignee => assignee.username)))).filter(Boolean).map(username => ({ label: username, value: username }));
+  const statusOptions = Array.from(new Set(tasks.map(task => task.status?.status))).filter(Boolean);
 
   const rowClassName = () => {
     return 'hover-row';
   };
 
   const handleRowClick = (task) => {
-    // Define your link here
     const link = task.url;
-    window.open(link, '_blank'); // Open the link in a new tab
+    window.open(link, '_blank');
   };
 
   const statusBodyTemplate = (rowData) => {
     const statusStyle = {
-      backgroundColor: rowData.status.color, // Set background color from the task
-      color: 'white', // Set text color to white
-      textTransform: 'uppercase', // Convert text to uppercase
-      // fontWeight: 'bold', // Make text bold
-      padding: '5px', // Add some padding for better appearance
-      borderRadius: '4px', // Add some border radius for rounded corners
-      display: 'inline-block', // Inline block to ensure proper padding and background application
+      backgroundColor: rowData.status.color,
+      color: 'white',
+      textTransform: 'uppercase',
+      padding: '5px',
+      borderRadius: '4px',
+      display: 'inline-block',
       fontSize: "12px",
-      whiteSpace: 'nowrap', // Prevent text from wrapping
-      overflow: 'hidden', // Hide overflow
-      textOverflow: 'ellipsis', // Add ellipsis for overflowing text
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
     };
 
     return (
@@ -72,14 +144,14 @@ export default function Page() {
   const watchersBodyTemplate = (rowData) => {
     return (
       <div>
-      {rowData.watchers.map((watcher, index) => (
-        <span key={index} className="inline-block mr-2" style={{ color: watcher.color }}>
-          {watcher.username}
-        </span>
-      ))}
-    </div>
-    )
-  }
+        {rowData.watchers.map((watcher, index) => (
+          <span key={index} className="inline-block mr-2" style={{ color: watcher.color }}>
+            {watcher.username}
+          </span>
+        ))}
+      </div>
+    );
+  };
 
   const creatorBodyTemplate = (rowData) => {
     return (
@@ -99,21 +171,35 @@ export default function Page() {
 
   function formatDate(timestamp) {
     const date = new Date(parseInt(timestamp));
-    const options = { day: '2-digit', month: 'short', year: '2-digit' }; // Customize the date format options
-    return date.toLocaleDateString('en-GB', options); // 'en-GB' for day-month-year format
+    const options = { day: '2-digit', month: 'short', year: '2-digit' };
+    return date.toLocaleDateString('en-GB', options);
   }
 
   const dueDateBodyTemplate = (rowData) => {
     if (rowData?.due_date) {
       return (
-        <div style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
+        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {formatDate(rowData?.due_date)}
         </div>
-      )
+      );
     } else {
-      return <></>
+      return <></>;
     }
-  }
+  };
+
+  const renderHeader = () => {
+    return (
+      <div className="flex justify-between">
+        <Button type="button" icon="pi pi-filter-slash" label="Clear" onClick={() => { setFilters(baseFilters); setGlobalFilterValue(''); }} />
+        <span className="p-input-icon-left flex items-center">
+          <i className="pi pi-search ml-2" />
+          <InputText value={globalFilterValue} onChange={onGlobalFilterChange} placeholder="Global Search" className='pl-8' />
+        </span>
+      </div>
+    );
+  };
+
+  const header = renderHeader();
 
   return (
     <div className='max-w-7xl m-auto p-3'>
@@ -123,7 +209,7 @@ export default function Page() {
 
       <div className='cursor-pointer hover:opacity-75 flex items-center w-[150px]'>
         <i className="pi pi-sync" style={{ fontSize: '1rem' }}></i>
-        <span className='ml-2' onClick={() => {router.push("/redirect");}}>Refresh Data</span>   
+        <span className='ml-2' onClick={() => { router.push("/redirect"); }}>Refresh Data</span>
       </div>
 
       <div className='cursor-pointer hover:opacity-75 flex items-center w-[150px]'>
@@ -132,16 +218,36 @@ export default function Page() {
       </div>
 
       <div className="table-wrapper mt-5 mb-5">
-        <DataTable value={tasks} color='#FFA500' rowClassName={rowClassName} onRowClick={(e) => handleRowClick(e.data)}>
-          <Column field="name" header="Tasks"></Column>
-          <Column field="status.status" header="Status" body={statusBodyTemplate}></Column>
-          <Column field="assignees" header="Assignees" body={assigneesBodyTemplate}></Column>
-          <Column field="watchers" header="Watchers" body={watchersBodyTemplate}></Column>
-          <Column field="creator" header="Creator" body={creatorBodyTemplate}></Column>
-          <Column field="priority" header="Priority" body={priorityBodyTemplate}></Column>
-          <Column field="due_date" header="Due Date" body={dueDateBodyTemplate}></Column>
+        <DataTable value={filteredTasks} rowClassName={rowClassName} onRowClick={(e) => handleRowClick(e.data)} paginator rows={10} header={header} filterDisplay="menu">
+          <Column field="name" header="Tasks" />
+          <Column field="status.status" header="Status" body={statusBodyTemplate} filter showFilterMatchModes={false} showAddButton={false} showFilterOperator={false} filterElement={
+            <MultiSelect 
+              value={filters['status.status'].value} 
+              options={statusOptions.map(option => ({ label: option, value: option }))}
+              onChange={onStatusFilterChange}
+              optionLabel="label"
+              placeholder="Select Status" 
+              className="p-column-filter"
+              showClear 
+            />
+          } />
+          <Column field="assignees" header="Assignees" body={assigneesBodyTemplate} showFilterMatchModes={false} showAddButton={false} showFilterOperator={false} filter filterField="assignees.username" filterMatchMode="customAssigneeFilter" filterElement={
+            <MultiSelect 
+              value={filters['assignees.username'].value} 
+              options={assigneeOptions}
+              onChange={onAssigneeFilterChange}
+              optionLabel="label"
+              placeholder="Select Assignees" 
+              className="p-column-filter"
+              showClear 
+            />
+          } />
+          <Column field="watchers" header="Watchers" body={watchersBodyTemplate} />
+          <Column field="creator" header="Creator" body={creatorBodyTemplate} />
+          <Column field="priority" header="Priority" body={priorityBodyTemplate} />
+          <Column field="due_date" header="Due Date" body={dueDateBodyTemplate} />
         </DataTable>
       </div>
     </div>
-  )
+  );
 }

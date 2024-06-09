@@ -15,7 +15,8 @@ export async function POST(req, res) {
       });
   
       if (!res.ok) {
-        throw new Error('Failed to fetch data');
+        const errorText = await res.text();
+        throw new Error(errorText);
       }
   
       const data = await res.json();
